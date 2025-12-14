@@ -11,7 +11,7 @@ MAX_HANDS = 1
 OFFSET = 20
 IMG_SIZE = 300
 FOLDER = Path("Data/A")
-MIRROR = True  # Mirror for natural webcam preview
+MIRROR = False  # Mirror for natural webcam preview
 # ------------------------------------------------
 
 def center_pad_resize(img, target=IMG_SIZE):
