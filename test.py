@@ -1,54 +1,50 @@
+import os
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"  # quieter TF logs
+
 import cv2
 import math
 import time
 import numpy as np
-from collections import deque, Counter
 from pathlib import Path
 from cvzone.HandTrackingModule import HandDetector
-from cvzone.ClassificationModule import Classifier
+from tensorflow.keras.models import load_model
 
 # -------------------- Config --------------------
 CAM_INDEX = 0
 MAX_HANDS = 1
-OFFSET = 20
-IMG_SIZE = 300                # canvas for classifier input
-MIRROR = True                 # mirror webcam for natural preview
+OFFSET = 20                 # extra pixels around bbox
+PREVIEW_MIRROR = True       # mirror webcam preview
+MODEL_INPUT = 224           # typical for Teachable Machine
+THRESHOLD = 0.75            # show "Unknown" below this
+SAVE_DIR = Path("Predictions")  # optional saves on 's' key
+
+# Model folder paths
 MODEL_PATH = "Model/keras_model.h5"
 LABELS_PATH = "Model/labels.txt"
-FALLBACK_LABELS = ["A", "B", "C"]
-SMOOTH_WINDOW = 7             # number of recent predictions to smooth (mode)
-CONF_THRESH = 0.65            # min probability to display class
-BAR_W = 220                   # width of probability bar
 # ------------------------------------------------
 
-def load_labels(path: str):
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            labels = [ln.strip() for ln in f if ln.strip()]
-        if labels:
-            return labels
-    except Exception:
-        pass
-    return FALLBACK_LABELS
+def load_labels(path):
+    with open(path, "r", encoding="utf-8") as f:
+        labels = [ln.strip() for ln in f.readlines() if ln.strip()]
+    return labels
 
-def center_pad_resize(img, target=IMG_SIZE):
+def center_pad_resize(img, target=MODEL_INPUT):
     """Resize img to fit inside a square (target x target) with padding (white)."""
     h, w = img.shape[:2]
     if h == 0 or w == 0:
-        # Return a blank canvas to avoid downstream crashes
         return np.ones((target, target, 3), dtype=np.uint8) * 255
 
     aspect = h / w
     canvas = np.ones((target, target, 3), dtype=np.uint8) * 255
 
-    if aspect > 1:  # tall
+    if aspect > 1:  # Tall image
         k = target / h
         new_w = int(w * k)
         new_w = min(max(new_w, 1), target)
         resized = cv2.resize(img, (new_w, target))
         w_gap = (target - new_w) // 2
         canvas[:, w_gap:w_gap + new_w] = resized
-    else:          # wide
+    else:          # Wide image
         k = target / w
         new_h = int(h * k)
         new_h = min(max(new_h, 1), target)
@@ -76,8 +72,7 @@ def safe_crop_with_offset(frame, x, y, w, h, offset=OFFSET):
 
     crop = frame[y1c:y2c, x1c:x2c]
     if crop.size == 0:
-        # return a tiny white canvas to avoid crashes; caller will resize anyway
-        return np.ones((10, 10, 3), dtype=np.uint8) * 255
+        return np.ones((MODEL_INPUT, MODEL_INPUT, 3), dtype=np.uint8) * 255
 
     if any([pad_left, pad_top, pad_right, pad_bottom]):
         crop = cv2.copyMakeBorder(
@@ -86,119 +81,126 @@ def safe_crop_with_offset(frame, x, y, w, h, offset=OFFSET):
         )
     return crop
 
-def draw_label_box(img, text, x, y, w, h, color=(255, 0, 255)):
-    """Draw a filled label box above the hand rectangle."""
-    pad_y = 50
-    cv2.rectangle(img, (x, y - pad_y), (x + max(120, w // 3), y), color, cv2.FILLED)
-    cv2.putText(img, text, (x + 8, y - 12), cv2.FONT_HERSHEY_COMPLEX, 0.9, (255, 255, 255), 2)
+def preprocess_for_model(img_bgr):
+    """Convert BGR->RGB, resize to MODEL_INPUT, normalize to [-1,1] like Teachable Machine."""
+    sq = center_pad_resize(img_bgr, target=MODEL_INPUT)
+    rgb = cv2.cvtColor(sq, cv2.COLOR_BGR2RGB)
+    tensor = (rgb.astype(np.float32) / 127.5) - 1.0  # [-1, 1]
+    return np.expand_dims(tensor, axis=0), sq
 
-def draw_probs_panel(img, probs, labels, origin=(10, 120), bar_w=BAR_W, bar_h=24, gap=8):
-    """Draw top-3 probabilities as horizontal bars."""
-    if probs is None or len(probs) == 0:
-        return
-    # zip & sort by prob desc
-    pairs = list(zip(labels, probs))
-    pairs.sort(key=lambda p: p[1], reverse=True)
-    top = pairs[:min(3, len(pairs))]
+def draw_label_above_hand(img, text, bbox, pad=6):
+    """Draw a filled label centered above the hand bbox."""
+    x, y, w, h = bbox
+    # Compute text size
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    scale = 0.9
+    thickness = 2
+    (tw, th), baseline = cv2.getTextSize(text, font, scale, thickness)
 
-    x0, y0 = origin
-    for i, (lbl, p) in enumerate(top):
-        y = y0 + i * (bar_h + gap)
-        cv2.putText(img, f"{lbl}", (x0, y + bar_h - 6), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (200, 200, 200), 2)
-        # bar bg
-        cv2.rectangle(img, (x0 + 70, y), (x0 + 70 + bar_w, y + bar_h), (60, 60, 60), 2)
-        # bar fill
-        fill_w = int(bar_w * float(p))
-        cv2.rectangle(img, (x0 + 70, y), (x0 + 70 + fill_w, y + bar_h), (0, 200, 255), cv2.FILLED)
-        cv2.putText(img, f"{p*100:5.1f}%", (x0 + 80 + bar_w, y + bar_h - 6), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (220, 220, 220), 2)
+    # Center the text horizontally above the bbox
+    cx = x + w // 2
+    tx = max(0, cx - tw // 2)
+    ty = max(0, y - 10)  # start a little above the bbox
+
+    # Box coordinates
+    box_x1 = max(0, tx - pad)
+    box_y1 = max(0, ty - th - pad)
+    box_x2 = min(img.shape[1] - 1, tx + tw + pad)
+    box_y2 = min(img.shape[0] - 1, ty + baseline + pad)
+
+    # Draw filled rectangle (dark) and then text (white)
+    cv2.rectangle(img, (box_x1, box_y1), (box_x2, box_y2), (0, 0, 0), -1)
+    cv2.putText(img, text, (tx, ty), font, scale, (255, 255, 255), thickness, cv2.LINE_AA)
 
 def main():
-    # Load labels & model
-    labels = load_labels(LABELS_PATH)
-    classifier = Classifier(MODEL_PATH, LABELS_PATH)
+    # Load model & labels
+    if not Path(MODEL_PATH).exists():
+        raise FileNotFoundError(f"Missing model file: {MODEL_PATH}")
+    if not Path(LABELS_PATH).exists():
+        raise FileNotFoundError(f"Missing labels file: {LABELS_PATH}")
 
-    # Camera setup
+    model = load_model(MODEL_PATH, compile=False)
+    labels = load_labels(LABELS_PATH)
+
+    # Prepare camera
     cap = cv2.VideoCapture(CAM_INDEX)
     if not cap.isOpened():
         raise RuntimeError(f"Could not open camera index {CAM_INDEX}")
+
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
 
     detector = HandDetector(maxHands=MAX_HANDS)
-
-    # Smoothing
-    pred_history = deque(maxlen=SMOOTH_WINDOW)
+    SAVE_DIR.mkdir(parents=True, exist_ok=True)
 
     prev_time = time.time()
-    last_probs = None
-    last_index = None
+    save_count = 0
+    last_pred = ""
+    last_conf = 0.0
 
     while True:
-        ok, img = cap.read()
+        ok, frame = cap.read()
         if not ok:
-            print("⚠️ Frame grab failed; retrying...")
+            print("⚠️  Frame grab failed; retrying...")
             continue
 
-        if MIRROR:
-            img = cv2.flip(img, 1)
+        if PREVIEW_MIRROR:
+            frame = cv2.flip(frame, 1)
 
-        hands, img_draw = detector.findHands(img, draw=True)
+        hands, img_draw = detector.findHands(frame, draw=True)
 
         # FPS
         now = time.time()
         fps = 1.0 / (now - prev_time) if now > prev_time else 0.0
         prev_time = now
 
-        cv2.putText(img_draw, f"FPS: {fps:.1f}", (10, 30),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
-        cv2.putText(img_draw, "Keys: [Q]/[ESC] Quit",
-                    (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (200, 200, 200), 2)
+        # Default model display
+        display_sq = np.ones((MODEL_INPUT, MODEL_INPUT, 3), dtype=np.uint8) * 255
 
         if hands:
             hand = hands[0]
             x, y, w, h = hand['bbox']
 
-            # Robust crop & square canvas
-            img_crop = safe_crop_with_offset(img, x, y, w, h, offset=OFFSET)
-            img_white = center_pad_resize(img_crop, target=IMG_SIZE)
+            # Crop & preprocess
+            crop = safe_crop_with_offset(frame, x, y, w, h, offset=OFFSET)
+            tensor, display_sq = preprocess_for_model(crop)
 
-            # Get prediction
-            probs, index = classifier.getPrediction(img_white, draw=False)  # probs is list of floats
-            last_probs = probs
-            last_index = index if 0 <= index < len(labels) else None
+            # Predict
+            preds = model.predict(tensor, verbose=0)[0]  # (num_classes,)
+            top_idx = int(np.argmax(preds))
+            conf = float(preds[top_idx])
+            label = labels[top_idx] if top_idx < len(labels) else f"Class {top_idx}"
 
-            # Smooth predicted index using mode over recent window
-            pred_history.append(index)
-            mode_index = Counter(pred_history).most_common(1)[0][0]
-
-            # Choose display label & confidence
-            if probs and 0 <= mode_index < len(probs):
-                conf = float(probs[mode_index])
+            if conf >= THRESHOLD:
+                last_pred, last_conf = label, conf
             else:
-                conf = 0.0
+                last_pred, last_conf = "Unknown", conf
 
-            if last_index is not None and conf >= CONF_THRESH:
-                display_text = f"{labels[mode_index]}  {conf*100:.1f}%"
-            elif last_index is not None:
-                display_text = f"{labels[mode_index]}  {conf*100:.1f}% (low)"
-            else:
-                display_text = "Detecting..."
+            # >>> Draw label above the hand (centered over bbox)
+            draw_label_above_hand(img_draw, f"{last_pred} ({last_conf:.2f})", (x, y, w, h))
 
-            # Draw label & bbox
-            draw_label_box(img_draw, display_text, x - OFFSET, y - OFFSET, w, h, color=(255, 0, 255))
-            cv2.rectangle(img_draw, (x - OFFSET, y - OFFSET), (x + w + OFFSET, y + h + OFFSET), (255, 0, 255), 3)
+        # UI overlays (keep FPS and helper text)
+        cv2.putText(img_draw, f"FPS: {fps:.1f}", (10, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+        cv2.putText(img_draw, "Keys: [S] Save crop  [Q]/[ESC] Quit", (10, 60),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (200, 200, 200), 2)
 
-            # Show helper windows
-            cv2.imshow("ImageCrop", img_crop)
-            cv2.imshow("ImageWhite", img_white)
+        # Windows
+        cv2.imshow("Webcam", img_draw)
+        cv2.imshow("Model Input (224x224)", display_sq)
 
-        # Draw probabilities panel on the main frame (last seen)
-        if last_probs is not None:
-            draw_probs_panel(img_draw, last_probs, labels, origin=(10, 110), bar_w=BAR_W)
-
-        cv2.imshow("Image", img_draw)
-
+        # Keys
         key = cv2.waitKey(1) & 0xFF
+
+        if key == ord('s'):
+            ts = time.strftime("%Y%m%d_%H%M%S")
+            millis = int((time.time() % 1) * 1000)
+            safe_label = last_pred.replace(" ", "_")
+            out_name = SAVE_DIR / f"{safe_label}_{ts}_{millis}_{int(last_conf*100)}.jpg"
+            cv2.imwrite(str(out_name), display_sq)
+            save_count += 1
+            print(f"✔ Saved #{save_count}: {out_name}")
+
         if key in (ord('q'), 27):  # q or ESC
             break
 
