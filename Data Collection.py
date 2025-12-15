@@ -10,7 +10,7 @@ CAM_INDEX = 0
 MAX_HANDS = 1
 OFFSET = 20
 IMG_SIZE = 300
-FOLDER = Path("Data/I")
+FOLDER = Path("Data/N")
 MIRROR = False  # Mirror for natural webcam preview
 # ------------------------------------------------
 
