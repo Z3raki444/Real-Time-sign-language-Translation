@@ -1,0 +1,59 @@
+REAL-TIME SIGN LANGUAGE RECOGNITION – OVERALL RESULTS
+============================================================
+
+Model file          : keras_model.h5
+Input image size    : 224 x 224
+Number of classes   : 26
+Total test samples  : 364
+
+Overall Accuracy    : 92.86 %
+
+Timing (Evaluation)
+------------------------------
+Total runtime           : 7.735 seconds
+Inference time (predict) : 4.427 seconds
+Avg time per image       : 12.161 ms
+Approx throughput        : 82.23 FPS
+
+Per-Class Accuracy
+------------------------------
+a          :  85.71% (n=14)
+b          : 100.00% (n=14)
+c          :  92.86% (n=14)
+d          :  85.71% (n=14)
+e          : 100.00% (n=14)
+f          : 100.00% (n=14)
+g          : 100.00% (n=14)
+h          : 100.00% (n=14)
+i          :  92.86% (n=14)
+j          :  92.86% (n=14)
+k          :  92.86% (n=14)
+l          : 100.00% (n=14)
+m          :  92.86% (n=14)
+n          :  50.00% (n=14)
+o          :  92.86% (n=14)
+p          : 100.00% (n=14)
+q          : 100.00% (n=14)
+r          : 100.00% (n=14)
+s          :  71.43% (n=14)
+t          : 100.00% (n=14)
+u          :  92.86% (n=14)
+v          :  85.71% (n=14)
+w          : 100.00% (n=14)
+x          : 100.00% (n=14)
+y          : 100.00% (n=14)
+z          :  85.71% (n=14)
+
+Best Performing Class(es)
+b (100.00%), e (100.00%), f (100.00%), g (100.00%), h (100.00%), l (100.00%), p (100.00%), q (100.00%), r (100.00%), t (100.00%), w (100.00%), x (100.00%), y (100.00%)
+
+Worst Performing Class(es)
+n (50.00%)
+
+Saved Plots (PNG)
+- confusion_matrix.png
+- tp_fp_fn_tn.png
+- confusion_matrix_normalized.png
+- per_class_accuracy.png
+- support_per_class.png
+- confidence_histogram.png
