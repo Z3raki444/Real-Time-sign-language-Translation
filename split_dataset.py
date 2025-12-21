@@ -1,3 +1,4 @@
+split_dataset.py
 import os, shutil, random, pathlib
 SRC = pathlib.Path("Data")
 OUT = pathlib.Path("DataSplit")
