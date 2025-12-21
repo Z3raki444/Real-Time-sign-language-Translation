@@ -8,8 +8,10 @@ import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers
 
-# -------------------- Robust Paths --------------------
-ROOT = Path(__file__).resolve().parent
+# =========================================================
+# Paths (ROBUST: works from any working directory)
+# =========================================================
+ROOT = Path(__file__).resolve().parent.parent   # <-- project root
 
 DATA_DIR  = ROOT / "ASL_kaggle"
 TRAIN_DIR = DATA_DIR / "train"
@@ -19,7 +21,9 @@ MODEL_DIR   = ROOT / "Model"
 MODEL_PATH  = MODEL_DIR / "keras_model.h5"
 LABELS_PATH = MODEL_DIR / "labels.txt"
 
-# -------------------- Config --------------------
+# =========================================================
+# Config
+# =========================================================
 IMG_SIZE   = (224, 224)
 BATCH_SIZE = 32
 VAL_SPLIT  = 0.2
@@ -29,7 +33,7 @@ EPOCHS_HEAD = 12
 EPOCHS_FT   = 10
 LR_HEAD     = 1e-3
 LR_FT       = 1e-5
-# ------------------------------------------------
+# =========================================================
 
 
 def write_labels(class_names, out_path: Path):
@@ -40,6 +44,10 @@ def write_labels(class_names, out_path: Path):
 
 
 def make_train_val_ds(folder: Path):
+    """
+    Training split decides class order.
+    Validation is forced to follow the same order.
+    """
     train_ds = tf.keras.utils.image_dataset_from_directory(
         folder,
         image_size=IMG_SIZE,
@@ -60,7 +68,7 @@ def make_train_val_ds(folder: Path):
         seed=SEED,
         validation_split=VAL_SPLIT,
         subset="validation",
-        class_names=train_ds.class_names,
+        class_names=train_ds.class_names,  # IMPORTANT
     )
     return train_ds, val_ds
 
@@ -72,27 +80,32 @@ def make_test_ds(folder: Path, class_names):
         batch_size=BATCH_SIZE,
         label_mode="int",
         shuffle=False,
-        class_names=class_names,
+        class_names=class_names,  # ensure same mapping
     )
 
 
 def main():
+    # -----------------------------------------------------
+    # Sanity checks
+    # -----------------------------------------------------
     print("RUNNING FILE :", Path(__file__).resolve())
     print("WORKDIR      :", Path.cwd().resolve())
     print("TRAIN_DIR    :", TRAIN_DIR.resolve())
     print("TEST_DIR     :", TEST_DIR.resolve())
 
     if not TRAIN_DIR.exists():
-        raise FileNotFoundError(f"Missing TRAIN_DIR: {TRAIN_DIR.resolve()}")
+        raise FileNotFoundError(f"Missing folder: {TRAIN_DIR}")
     if not TEST_DIR.exists():
-        raise FileNotFoundError(f"Missing TEST_DIR : {TEST_DIR.resolve()}")
+        raise FileNotFoundError(f"Missing folder: {TEST_DIR}")
 
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
     tf.random.set_seed(SEED)
     np.random.seed(SEED)
 
-    # Datasets
+    # -----------------------------------------------------
+    # Dataset
+    # -----------------------------------------------------
     train_ds, val_ds = make_train_val_ds(TRAIN_DIR)
     class_names = train_ds.class_names
     num_classes = len(class_names)
@@ -101,16 +114,16 @@ def main():
 
     test_ds = make_test_ds(TEST_DIR, class_names)
 
-    # Save labels
     write_labels(class_names, LABELS_PATH)
 
-    # Performance pipeline
     AUTOTUNE = tf.data.AUTOTUNE
     train_ds = train_ds.cache().prefetch(AUTOTUNE)
     val_ds   = val_ds.cache().prefetch(AUTOTUNE)
     test_ds  = test_ds.cache().prefetch(AUTOTUNE)
 
-    # Augmentation
+    # -----------------------------------------------------
+    # Data augmentation
+    # -----------------------------------------------------
     data_augmentation = keras.Sequential(
         [
             layers.RandomFlip("horizontal"),
@@ -126,7 +139,9 @@ def main():
         name="preprocess",
     )
 
-    # Base model
+    # -----------------------------------------------------
+    # Model
+    # -----------------------------------------------------
     base = tf.keras.applications.MobileNetV2(
         include_top=False,
         weights="imagenet",
@@ -141,33 +156,37 @@ def main():
     x = layers.GlobalAveragePooling2D()(x)
     x = layers.Dropout(0.2)(x)
     outputs = layers.Dense(num_classes, activation="softmax")(x)
+
     model = keras.Model(inputs, outputs)
 
     callbacks = [
-        keras.callbacks.ModelCheckpoint(
-            str(MODEL_PATH),
-            monitor="val_accuracy",
-            save_best_only=True,
-            verbose=1,
-        ),
-        keras.callbacks.EarlyStopping(
-            monitor="val_accuracy",
-            patience=4,
-            restore_best_weights=True,
-            verbose=1,
-        ),
-        keras.callbacks.ReduceLROnPlateau(
-            monitor="val_loss",
-            factor=0.5,
-            patience=2,
-            min_lr=1e-6,
-            verbose=1,
-        ),
-    ]
+    keras.callbacks.ModelCheckpoint(
+        filepath=str(MODEL_PATH),
+        monitor="val_accuracy",
+        save_best_only=True,
+        verbose=1,
+    ),
+    keras.callbacks.EarlyStopping(
+        monitor="val_accuracy",
+        patience=4,
+        restore_best_weights=True,
+        verbose=1,
+    ),
+    keras.callbacks.ReduceLROnPlateau(
+        monitor="val_loss",
+        factor=0.5,
+        patience=2,
+        min_lr=1e-6,
+        verbose=1,
+    ),
+]
 
-    # Stage 1
+
+    # -----------------------------------------------------
+    # Stage 1: Train classifier head
+    # -----------------------------------------------------
     model.compile(
-        optimizer=keras.optimizers.Adam(learning_rate=LR_HEAD),
+        optimizer=keras.optimizers.Adam(LR_HEAD),
         loss=keras.losses.SparseCategoricalCrossentropy(),
         metrics=["accuracy"],
     )
@@ -180,7 +199,9 @@ def main():
         callbacks=callbacks,
     )
 
-    # Stage 2
+    # -----------------------------------------------------
+    # Stage 2: Fine-tuning
+    # -----------------------------------------------------
     print("\n=== Stage 2: Fine-tune MobileNetV2 ===")
     base.trainable = True
 
@@ -189,7 +210,7 @@ def main():
         layer.trainable = i >= fine_tune_at
 
     model.compile(
-        optimizer=keras.optimizers.Adam(learning_rate=LR_FT),
+        optimizer=keras.optimizers.Adam(LR_FT),
         loss=keras.losses.SparseCategoricalCrossentropy(),
         metrics=["accuracy"],
     )
@@ -202,7 +223,9 @@ def main():
         callbacks=callbacks,
     )
 
-    # Evaluate best checkpoint
+    # -----------------------------------------------------
+    # Test evaluation
+    # -----------------------------------------------------
     best_model = keras.models.load_model(MODEL_PATH, compile=False)
     best_model.compile(
         optimizer="adam",

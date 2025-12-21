@@ -6,49 +6,49 @@ Input image size    : 224 x 224
 Number of classes   : 26
 Total test samples  : 364
 
-Overall Accuracy    : 93.41 %
+Overall Accuracy    : 95.33 %
 
 Timing (Evaluation)
 ------------------------------
-Total runtime            : 8.752 seconds
-Inference time (predict) : 3.911 seconds
-Avg time per image       : 10.744 ms
-Approx throughput        : 93.08 FPS
+Total runtime            : 8.030 seconds
+Inference time (predict) : 3.565 seconds
+Avg time per image       : 9.795 ms
+Approx throughput        : 102.09 FPS
 
 Per-Class Accuracy
 ------------------------------
-a          :  92.86% (n=14)
+a          : 100.00% (n=14)
 b          : 100.00% (n=14)
 c          :  92.86% (n=14)
-d          : 100.00% (n=14)
+d          :  92.86% (n=14)
 e          : 100.00% (n=14)
 f          : 100.00% (n=14)
 g          : 100.00% (n=14)
-h          :  85.71% (n=14)
+h          :  92.86% (n=14)
 i          : 100.00% (n=14)
-j          :  92.86% (n=14)
+j          : 100.00% (n=14)
 k          : 100.00% (n=14)
 l          : 100.00% (n=14)
 m          : 100.00% (n=14)
-n          :  57.14% (n=14)
+n          :  78.57% (n=14)
 o          :  92.86% (n=14)
 p          : 100.00% (n=14)
 q          : 100.00% (n=14)
 r          : 100.00% (n=14)
-s          :  71.43% (n=14)
-t          : 100.00% (n=14)
-u          :  78.57% (n=14)
+s          :  78.57% (n=14)
+t          :  92.86% (n=14)
+u          :  92.86% (n=14)
 v          :  85.71% (n=14)
-w          :  92.86% (n=14)
+w          : 100.00% (n=14)
 x          : 100.00% (n=14)
 y          :  92.86% (n=14)
-z          :  92.86% (n=14)
+z          :  85.71% (n=14)
 
 Best Performing Class(es)
-b (100.00%), d (100.00%), e (100.00%), f (100.00%), g (100.00%), i (100.00%), k (100.00%), l (100.00%), m (100.00%), p (100.00%), q (100.00%), r (100.00%), t (100.00%), x (100.00%)
+a (100.00%), b (100.00%), e (100.00%), f (100.00%), g (100.00%), i (100.00%), j (100.00%), k (100.00%), l (100.00%), m (100.00%), p (100.00%), q (100.00%), r (100.00%), w (100.00%), x (100.00%)
 
 Worst Performing Class(es)
-n (57.14%)
+n (78.57%), s (78.57%)
 
 Saved Plots (PNG)
 - confusion_matrix.png

@@ -9,7 +9,7 @@ from tensorflow import keras
 import matplotlib.pyplot as plt
 
 # ---------- Robust Paths ----------
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent   # <-- project root
 
 DATA_ROOT = ROOT / "ASL_kaggle"
 TEST_DIR  = DATA_ROOT / "test"
@@ -20,6 +20,7 @@ LABELS_PATH = MODEL_DIR / "labels.txt"
 
 OUTPUT_DIR = ROOT / "Output"
 OUTPUT_DIR.mkdir(exist_ok=True)
+
 
 CSV_OUT     = OUTPUT_DIR / "eval_results.csv"
 CSV_PERCLS  = OUTPUT_DIR / "per_class_metrics.csv"
