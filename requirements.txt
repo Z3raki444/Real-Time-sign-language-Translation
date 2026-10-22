@@ -1,20 +1,8 @@
-# Core
-python==3.10.*
-
-# Deep Learning
+# Use Python 3.10
 tensorflow==2.13.0
 keras==2.13.1
-
-# Computer Vision
 opencv-python==4.9.0.80
 mediapipe==0.10.9
 cvzone==1.6.1
-
-# Scientific Computing
 numpy==1.24.3
-
-# Visualization
 matplotlib==3.8.2
-
-# Utilities
-pathlib
